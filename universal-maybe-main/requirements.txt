@@ -1,0 +1,5 @@
+openai
+python-dotenv
+instructor
+pydantic
+python-docx
