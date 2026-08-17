@@ -10,9 +10,9 @@ from openai import AsyncOpenAI
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from enum import Enum
-from output_schema import GeneratorOutput, SubTopicOutput, ConceptOutput
+from output_schema import GeneratorOutput, SubTopicOutput
 from tqdm.asyncio import tqdm
-from db_ope import build_avoid_list_text, build_concept_avoid_text, insert_concept, hash_question, extract_question_line, init_db
+from db_ope import build_avoid_list_text, build_concept_avoid_text, hash_question, extract_question_line, init_db
 from collections import Counter
 load_dotenv()
 
@@ -275,28 +275,11 @@ async def chapter_safe_task(prompt_kwargs: dict, db_file: str = "") -> Generatio
             message=f"The following issue occured: {e}"
         )
     
-    # Extract and store the core concept for anti-repetition tracking
-    if db_file and result and hasattr(result, 'question'):
-        try:
-            concept_result = await agenerate(
-                client=CLIENT,
-                user_prompt=f"Extract the single core concept being tested in this question:\n\n{result.question}",
-                response_model=ConceptOutput
-            )
-            if hasattr(concept_result, 'concept') and concept_result.concept:
-                from db_ope import split_question_blocks
-                blocks = split_question_blocks(result.question)
-                if blocks:
-                    qline = extract_question_line(blocks[0])
-                    qhash = hash_question(qline)
-                    insert_concept(db_file=db_file, qhash=qhash, concept=concept_result.concept)
-        except Exception:
-            pass  # concept extraction is best-effort, don't fail the generation
-    
+    # Return the raw generated question text for downstream dedup + storage
     return GenerationStatus(
         status=OperationStatus.SUCCESS,
         data=result.question,
-        message=f"Success!!!"
+        message="Success!!!"
     )
     
 async def subject_safe_task(prompt_list: List[dict], db_file: str = ""):

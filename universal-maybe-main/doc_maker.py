@@ -3,7 +3,137 @@ from question_map import get_question_bank
 from generation_engine import get_questions
 from pathlib import Path
 import docx
-from db_ope import split_question_blocks, dedup_blocks_against_db, extract_question_line, insert_questions
+from openai import AsyncOpenAI
+from db_ope import (
+    split_question_blocks,
+    dedup_blocks_against_db,
+    extract_question_line,
+    insert_questions,
+    insert_embedding,
+    insert_concept,
+    hash_question,
+    SEMANTIC_SIMILARITY_THRESHOLD,
+)
+from similarity import is_too_similar, get_embedding
+from output_schema import ConceptOutput
+from generator import agenerate
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_EMBED_CLIENT = AsyncOpenAI()
+
+# Rejection reason labels for structured logging
+REASON_EXACT_DUPLICATE    = "EXACT_DUPLICATE"
+REASON_SEMANTIC_DUPLICATE = "SEMANTIC_DUPLICATE"
+REASON_ACCEPTED           = "ACCEPTED"
+
+async def _extract_and_store_concept(db_file: str, qhash: str, qtext: str) -> None:
+    """Best-effort: extract the core concept tested by a question and store it."""
+    try:
+        concept_result = await agenerate(
+            client=_EMBED_CLIENT,
+            user_prompt=(
+                f"Extract the single core concept being tested in this question:\n\n{qtext}"
+            ),
+            response_model=ConceptOutput,
+        )
+        if hasattr(concept_result, "concept") and concept_result.concept:
+            insert_concept(db_file=db_file, qhash=qhash, concept=concept_result.concept)
+    except Exception:
+        pass  # concept extraction is best-effort; never fail the pipeline
+
+
+async def make_docs(raw_response, db_file):
+    blocks = split_question_blocks(raw_response)
+    if not blocks:
+        # No recognisable question blocks; pass through as-is
+        final_cleaned = raw_response
+        question_lines = final_cleaned.splitlines()
+        regex = r'^\(\d+\)\.\s'
+        question_map = get_question_bank(text_lines=question_lines, re_exprs=regex)
+        return list(question_map.values())
+
+    file_lock = asyncio.Lock()
+
+    # ── Stage 1: Exact-hash deduplication ────────────────────────────────────
+    async with file_lock:
+        unique_blocks, dup_blocks = dedup_blocks_against_db(blocks, db_file=db_file)
+
+    for b in dup_blocks:
+        qline = extract_question_line(b)
+        print(f"  [REJECTED:{REASON_EXACT_DUPLICATE}] {qline[:80]!r}")
+
+    # ── Stage 2: Semantic similarity check ───────────────────────────────────
+    semantic_unique_blocks = []
+    semantic_dup_blocks = []
+
+    for block in unique_blocks:
+        qline = extract_question_line(block)
+        try:
+            too_similar, score, embedding = await is_too_similar(
+                client=_EMBED_CLIENT,
+                new_question_text=qline,
+                db_file=db_file,
+                threshold=SEMANTIC_SIMILARITY_THRESHOLD,
+            )
+        except Exception as e:
+            # If the embedding call fails, let the question through (fail-open)
+            print(f"  [WARN] Semantic check failed for {qline[:60]!r}: {e}")
+            too_similar, score, embedding = False, 0.0, []
+
+        if too_similar:
+            semantic_dup_blocks.append(block)
+            print(
+                f"  [REJECTED:{REASON_SEMANTIC_DUPLICATE}] score={score:.3f} "
+                f"threshold={SEMANTIC_SIMILARITY_THRESHOLD} | {qline[:70]!r}"
+            )
+        else:
+            semantic_unique_blocks.append((block, embedding))
+            print(f"  [{REASON_ACCEPTED}] score={score:.3f} | {qline[:70]!r}")
+
+    # ── Stage 3: Store accepted questions, embeddings, and concepts ───────────
+    concept_tasks = []
+    stored_qlines = []
+
+    if semantic_unique_blocks:
+        async with file_lock:
+            accepted_qlines = [extract_question_line(b) for b, _ in semantic_unique_blocks]
+            insert_questions(accepted_qlines, db_file=db_file)
+            print(f"  → Stored {len(accepted_qlines)} new question(s) in {db_file}")
+
+        for qline, (block, embedding) in zip(accepted_qlines, semantic_unique_blocks):
+            qhash = hash_question(qline)
+            # Store embedding (non-blocking, best-effort)
+            if embedding:
+                try:
+                    insert_embedding(db_file=db_file, qhash=qhash, embedding=embedding)
+                except Exception:
+                    pass
+            # Schedule concept extraction (run concurrently after this loop)
+            concept_tasks.append(_extract_and_store_concept(db_file=db_file, qhash=qhash, qtext=qline))
+
+        stored_qlines = accepted_qlines
+
+    # Run concept extraction concurrently for all accepted questions
+    if concept_tasks:
+        await asyncio.gather(*concept_tasks, return_exceptions=True)
+
+    if dup_blocks:
+        print(f"  → {len(dup_blocks)} exact duplicate(s) skipped.")
+    if semantic_dup_blocks:
+        print(f"  → {len(semantic_dup_blocks)} semantic duplicate(s) skipped.")
+
+    # ── Build output ──────────────────────────────────────────────────────────
+    final_blocks = [b for b, _ in semantic_unique_blocks]
+    final_cleaned = "\n".join(final_blocks)
+
+    question_lines = final_cleaned.splitlines()
+    regex = r'^\(\d+\)\.\s'
+    question_map = get_question_bank(text_lines=question_lines, re_exprs=regex)
+    return list(question_map.values())
+
+
 
 def clean_xml(s: str) -> str:
     if s is None:
@@ -11,49 +141,16 @@ def clean_xml(s: str) -> str:
     if not isinstance(s, str):
         s = str(s)
 
-    # XML 1.0 valid chars:
-    # 0x9, 0xA, 0xD, and 0x20–0xD7FF, 0xE000–0xFFFD, 0x10000–0x10FFFF
     def ok(cp: int) -> bool:
         return (
-            cp == 0x9 or cp == 0xA or cp == 0xD or
-            (0x20 <= cp <= 0xD7FF) or
-            (0xE000 <= cp <= 0xFFFD) or
-            (0x10000 <= cp <= 0x10FFFF)
+            cp == 0x9 or cp == 0xA or cp == 0xD
+            or (0x20 <= cp <= 0xD7FF)
+            or (0xE000 <= cp <= 0xFFFD)
+            or (0x10000 <= cp <= 0x10FFFF)
         )
 
     return "".join(ch for ch in s if ok(ord(ch)))
 
-async def make_docs(raw_response, db_file):
-
-    blocks = split_question_blocks(raw_response)
-    if not blocks:
-        # no recognizable questions; accept as-is
-        final_cleaned = raw_response
-    else:
-
-        file_lock = asyncio.Lock()
-
-        async with file_lock:
-            unique_blocks, dup_blocks = dedup_blocks_against_db(blocks, db_file=db_file)
-
-        cleaned_response = '\n'.join(unique_blocks)
-        unique_blocks_for_db = unique_blocks
-        if dup_blocks:
-            print(f"  → Proceeding with output (duplicates present: {len(dup_blocks)}). They will not be added to the DB.")
-        if unique_blocks_for_db:
-            async with file_lock:
-                new_q_lines = [extract_question_line(b) for b in unique_blocks_for_db]
-                insert_questions(new_q_lines, db_file=db_file)
-                print(f"  → Stored {len(new_q_lines)} new question(s) in {db_file}")
-
-        final_cleaned = cleaned_response
-
-    question_lines = final_cleaned.splitlines()
-
-    regex = r'^\(\d+\)\.\s'
-    question_map = get_question_bank(text_lines=question_lines, re_exprs=regex)
-
-    return list(question_map.values())
 
 def number_questions(questions: list[str]) -> list[str]:
     no_of_questions = len(questions)

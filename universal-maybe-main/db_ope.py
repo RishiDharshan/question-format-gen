@@ -7,6 +7,11 @@ import numpy as np
 DEDUP_MAX_AVOID = 300
 CONCEPT_MAX_AVOID = 500
 
+# Cosine similarity threshold for semantic duplicate detection.
+# Increase to be more permissive (accept more), decrease to be stricter.
+# 0.85 is a good starting point for short MCQ stems with text-embedding-3-small.
+SEMANTIC_SIMILARITY_THRESHOLD: float = 0.85
+
 def _db_connect(db_file):
     Path(db_file).parent.mkdir(parents=True, exist_ok=True)
     return sqlite3.connect(db_file)
@@ -51,13 +56,14 @@ def get_known_questions(db_file, limit: int=DEDUP_MAX_AVOID):
     return [r[0] for r in rows]
 
 def insert_concept(db_file: str, qhash: str, concept: str, chapter: str = ""):
-    """Store the core concept tag for a generated question."""
+    """Store the core concept tag for a generated question (idempotent per qhash)."""
     now = datetime.datetime.now().isoformat(timespec='seconds')
     with _db_connect(db_file=db_file) as conn:
         c = conn.cursor()
         try:
+            # INSERT OR IGNORE prevents duplicate concept rows for the same question
             c.execute(
-                "INSERT INTO concepts (qhash, concept, chapter, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO concepts (qhash, concept, chapter, created_at) VALUES (?, ?, ?, ?)",
                 (qhash, concept.strip().lower(), chapter.strip(), now)
             )
         except sqlite3.Error:
@@ -259,10 +265,16 @@ def insert_questions(qtexts, db_file):
 
 def extract_question_line(block: str) -> str:
     """
-    From a block, return the question line without the leading number and dot.
+    From a block, return the question line without the leading number marker.
+    Handles the actual output format: '(1). Question text'
+    Also handles plain '1. Question text' as a fallback.
     """
     first = block.splitlines()[0]
-    q = re.sub(r'^\s*\d+\.\s*', '', first).strip()
+    # Primary: strip the (N). prefix used by the generator
+    q = re.sub(r'^\s*\(\d+\)\.?\s*', '', first).strip()
+    if q == first.strip():
+        # Fallback: strip plain N. prefix
+        q = re.sub(r'^\s*\d+\.\s*', '', first).strip()
     return q
 
 def norm_question_text(q: str) -> str:
