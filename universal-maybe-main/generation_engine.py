@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import json
 from typing import List, Optional
 import random
-from prompt import prompt
+from typing import List, Optional
 import asyncio
 from generator import agenerate
 from openai import AsyncOpenAI
@@ -44,9 +46,13 @@ def _build_prompt(topic: str,
                   no_of_options: str,
                   avoid_text: str,
                   exam_name: str,
-                  concept_avoid_text: str = "") -> str | None:
+                  concept_avoid_text: str = "",
+                  prompt_template: str = "") -> str | None:
     try:
-        formatted_prompt = prompt.format(topic=topic, question_type=question_type, samples=samples, style=style, difficulty=difficulty, no_of_options=no_of_options, exam_name=exam_name, concept_avoid_text=concept_avoid_text)
+        if not prompt_template:
+            from prompt import prompt as default_prompt
+            prompt_template = default_prompt
+        formatted_prompt = prompt_template.format(topic=topic, question_type=question_type, samples=samples, style=style, difficulty=difficulty, no_of_options=no_of_options, exam_name=exam_name, concept_avoid_text=concept_avoid_text)
         return f"{formatted_prompt}\n\n{avoid_text}" if avoid_text else f"{formatted_prompt}"
     except Exception:
         return None
@@ -92,10 +98,7 @@ def _return_pool(chapter_list: List[str], distribution: int) -> None:
         random_chapters: List[str] = random.sample(chapter_list, k=distribution)
         return random_chapters
     
-async def _create_subject_prompt_pool(subject_data: dict, question_type_info: dict, no_of_options: int, db_file: str, exam_name: str):
-
-    avoid_list_text = build_avoid_list_text(db_file=db_file)
-    concept_avoid = build_concept_avoid_text(db_file=db_file)
+async def _create_subject_prompt_pool(subject_data: dict, question_type_info: dict, no_of_options: int, db_file: str, exam_name: str, prompt_template: str = ""):
 
     question_types: List[dict] | None = subject_data.get("types_of_questions", None)
     subject_name: str | None = subject_data.get("subject", None)
@@ -105,6 +108,19 @@ async def _create_subject_prompt_pool(subject_data: dict, question_type_info: di
     if subject_chapters and question_types:
         total_distribution = sum(t.get("distribution", 5) for t in question_types)
         global_chapter_pool = _return_pool(chapter_list=subject_chapters, distribution=total_distribution)
+        random.shuffle(global_chapter_pool)
+        
+        # Fetch all subtopics for the whole subject globally to ensure uniqueness
+        chapter_counts = Counter(global_chapter_pool)
+        
+        async def fetch_and_map_global(chapter, count):
+            if count <= 0: return []
+            subtopics = await _fetch_distinct_subtopics(subject_name, chapter, count, 5)
+            return [f"{subject_name}: {chapter} (Specific Focus: {subtopic})" for subtopic in subtopics]
+
+        tasks = [fetch_and_map_global(c, count) for c, count in chapter_counts.items()]
+        results = await asyncio.gather(*tasks)
+        global_chapter_pool = [item for sublist in results for item in sublist]
         random.shuffle(global_chapter_pool)
     else:
         global_chapter_pool = None
@@ -127,17 +143,6 @@ async def _create_subject_prompt_pool(subject_data: dict, question_type_info: di
         if global_chapter_pool:
             chapter_pool = global_chapter_pool[pool_index:pool_index + distribution]
             pool_index += distribution
-            chapter_counts = Counter(chapter_pool)
-            
-            async def fetch_and_map(chapter, count):
-                if count <= 0: return []
-                subtopics = await _fetch_distinct_subtopics(subject_name, chapter, count, difficulty)
-                return [f"{subject_name}: {chapter} (Specific Focus: {subtopic})" for subtopic in subtopics]
-
-            tasks = [fetch_and_map(c, count) for c, count in chapter_counts.items()]
-            results = await asyncio.gather(*tasks)
-            chapter_pool_iterable = [item for sublist in results for item in sublist]
-            chapter_pool = chapter_pool_iterable
         else:
             chapter_pool = _return_pool(chapter_list=[subject_name], distribution=distribution)
 
@@ -147,27 +152,24 @@ async def _create_subject_prompt_pool(subject_data: dict, question_type_info: di
             difficulty_instruction = f"Difficulty Level {difficulty}/10: Emphasize application and analysis (higher-order thinking). Create distractors that are challenging yet unambiguous. Dive into deeper complexity."
 
         prompt_pool = [
-            _build_prompt(
-                topic=chapter,
-                question_type=question_type,
-                samples=samples,
-                style=style,
-                difficulty=difficulty_instruction,
-                no_of_options=no_of_options,
-                avoid_text=avoid_list_text,
-                exam_name=exam_name,
-                concept_avoid_text=concept_avoid
-                ) 
+            {
+                "topic": chapter,
+                "question_type": question_type,
+                "samples": samples,
+                "style": style,
+                "difficulty": difficulty_instruction,
+                "no_of_options": no_of_options,
+                "exam_name": exam_name,
+                "prompt_template": prompt_template
+            }
             for chapter in chapter_pool
         ]
         prompts.extend(prompt_pool)
     return prompts #all prompts are formed now use this for generation.
 
-async def _create_topic_based_prompt_pool(subject_data: dict, question_type_info: dict, no_of_options: int, db_file: str, exam_name: str):
+async def _create_topic_based_prompt_pool(subject_data: dict, question_type_info: dict, no_of_options: int, db_file: str, exam_name: str, prompt_template: str = ""):
     """Handles per-topic question distribution schema where each topic specifies its own question types and counts."""
 
-    avoid_list_text = build_avoid_list_text(db_file=db_file)
-    concept_avoid = build_concept_avoid_text(db_file=db_file)
     subject_name: str = subject_data.get("subject", "Unknown Subject")
     topics: List[dict] = subject_data.get("topics", [])
 
@@ -176,7 +178,17 @@ async def _create_topic_based_prompt_pool(subject_data: dict, question_type_info
     for topic_entry in topics:
         topic_str: str = topic_entry.get("topic", subject_name)
         question_specs: List[dict] = topic_entry.get("questions", [])
+        
+        # Group counts globally for this topic
+        total_count = sum(q.get("count", 1) for q in question_specs)
+        if total_count > 0:
+            all_subtopics = await _fetch_distinct_subtopics(subject_name, topic_str, total_count, 5)
+            all_topic_pool = [f"{subject_name}: {topic_str} (Specific Focus: {subtopic})" for subtopic in all_subtopics]
+            random.shuffle(all_topic_pool)
+        else:
+            all_topic_pool = []
 
+        pool_index = 0
         for q_spec in question_specs:
             question_type: str = q_spec.get("type", "Direct MCQ questions")
             count: int = q_spec.get("count", 1)
@@ -190,27 +202,25 @@ async def _create_topic_based_prompt_pool(subject_data: dict, question_type_info
                 samples = None
                 style = None
 
-            # Fetch distinct subtopics for diversity when count > 1
-            subtopics = await _fetch_distinct_subtopics(subject_name, topic_str, count, difficulty)
-            topic_pool = [f"{subject_name}: {topic_str} (Specific Focus: {subtopic})" for subtopic in subtopics]
+            topic_pool = all_topic_pool[pool_index:pool_index + count]
+            pool_index += count
 
             if difficulty <= 5:
                 difficulty_instruction = f"Difficulty Level {difficulty}/10: Focus on fundamental concepts, basic factual recall, and straightforward questions. Avoid overly complex, tricky, or highly obscure distractors."
             else:
                 difficulty_instruction = f"Difficulty Level {difficulty}/10: Emphasize application and analysis (higher-order thinking). Create distractors that are challenging yet unambiguous. Dive into deeper complexity."
-
+            
             prompt_pool = [
-                _build_prompt(
-                    topic=t,
-                    question_type=question_type,
-                    samples=samples,
-                    style=style,
-                    difficulty=difficulty_instruction,
-                    no_of_options=no_of_options,
-                    avoid_text=avoid_list_text,
-                    exam_name=exam_name,
-                    concept_avoid_text=concept_avoid
-                )
+                {
+                    "topic": t,
+                    "question_type": question_type,
+                    "samples": samples,
+                    "style": style,
+                    "difficulty": difficulty_instruction,
+                    "no_of_options": no_of_options,
+                    "exam_name": exam_name,
+                    "prompt_template": prompt_template
+                }
                 for t in topic_pool
             ]
             prompts.extend(prompt_pool)
@@ -223,6 +233,16 @@ async def get_individual_jobs(data: dict) -> dict | None:
     no_of_options: int = data.get("no_of_options", 4)
     db_file: str = data.get("db_file")
     exam_name: str = data.get("exam_name")
+    prompt_file: str = data.get("prompt_file", "prompt")
+    
+    import importlib
+    try:
+        prompt_module = importlib.import_module(prompt_file)
+        prompt_template = prompt_module.prompt
+    except Exception as e:
+        print(f"Failed to load prompt template from {prompt_file}. Error: {e}")
+        from prompt import prompt as default_prompt
+        prompt_template = default_prompt
 
     if subjects is None:
         return None
@@ -231,16 +251,23 @@ async def get_individual_jobs(data: dict) -> dict | None:
         for sub_no, subject in enumerate(subjects, 1):
             # Detect schema: new per-topic schema has 'topics', old schema has 'chapters'
             if "topics" in subject:
-                prompt_pool: List[str] = await _create_topic_based_prompt_pool(subject_data=subject, question_type_info=types, no_of_options=no_of_options, db_file=db_file, exam_name=exam_name)
+                prompt_pool: List[str] = await _create_topic_based_prompt_pool(subject_data=subject, question_type_info=types, no_of_options=no_of_options, db_file=db_file, exam_name=exam_name, prompt_template=prompt_template)
             else:
-                prompt_pool: List[str] = await _create_subject_prompt_pool(subject_data=subject, question_type_info=types, no_of_options=no_of_options, db_file=db_file, exam_name=exam_name)
+                prompt_pool: List[str] = await _create_subject_prompt_pool(subject_data=subject, question_type_info=types, no_of_options=no_of_options, db_file=db_file, exam_name=exam_name, prompt_template=prompt_template)
             subject_name: str = subject.get("subject", f"subject no: {sub_no}")
             subject_prompt_map[subject_name] = prompt_pool
 
         return subject_prompt_map if subject_prompt_map else None
     
-async def chapter_safe_task(prompt: str, db_file: str = "") -> GenerationStatus:
-    try: 
+async def chapter_safe_task(prompt_kwargs: dict, db_file: str = "") -> GenerationStatus:
+    try:
+        # Dynamically fetch avoid lists right before generating
+        avoid_text = build_avoid_list_text(db_file=db_file) if db_file else ""
+        concept_avoid_text = build_concept_avoid_text(db_file=db_file) if db_file else ""
+        
+        # Build the full prompt string
+        prompt = _build_prompt(**prompt_kwargs, avoid_text=avoid_text, concept_avoid_text=concept_avoid_text)
+        
         result: GeneratorOutput = await agenerate(client=CLIENT, user_prompt=prompt, response_model=GeneratorOutput)
     except Exception as e:
         return GenerationStatus(
@@ -272,15 +299,15 @@ async def chapter_safe_task(prompt: str, db_file: str = "") -> GenerationStatus:
         message=f"Success!!!"
     )
     
-async def subject_safe_task(prompt_list: List[str], db_file: str = ""):
+async def subject_safe_task(prompt_list: List[dict], db_file: str = ""):
 
     sem_2 = asyncio.Semaphore(25)
 
-    async def chapter_worker_wrapper(prompt: str):
+    async def chapter_worker_wrapper(prompt_kwargs: dict):
         async with sem_2:
-            return await chapter_safe_task(prompt=prompt, db_file=db_file)
+            return await chapter_safe_task(prompt_kwargs=prompt_kwargs, db_file=db_file)
         
-    tasks = [chapter_worker_wrapper(prompt=p) for p in prompt_list]
+    tasks = [chapter_worker_wrapper(prompt_kwargs=p) for p in prompt_list]
 
     chapter_results = await tqdm.gather(*tasks)
 
@@ -289,11 +316,11 @@ async def subject_safe_task(prompt_list: List[str], db_file: str = ""):
     
 async def main_worker(prompt_maps: dict, db_file: str = ""):
     
-    prompt_lists: List[str] = [prompt_list for prompt_list in prompt_maps.values()]
+    prompt_lists: List[List[dict]] = [prompt_list for prompt_list in prompt_maps.values()]
 
     sem_1: asyncio.Semaphore  = asyncio.Semaphore(50)
 
-    async def subject_worker_wrapper(prompt_list: List[str]):
+    async def subject_worker_wrapper(prompt_list: List[dict]):
         async with sem_1:
             return await subject_safe_task(prompt_list=prompt_list, db_file=db_file)
         
@@ -315,5 +342,4 @@ async def get_questions(json_path: str):
     
 if __name__ == "__main__":
     get_questions('trial.json')
-
 

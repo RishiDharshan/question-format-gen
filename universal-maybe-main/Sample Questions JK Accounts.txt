@@ -1,0 +1,40 @@
+1. Fill in the Blanks Question
+According to the ________ Concept, revenue earned during a period should be matched with expenses incurred to earn that revenue.
+A. Going Concern B. Matching C. Dual Aspect D. Cost
+Correct Answer: B
+Detailed Solution:
+The Matching Concept requires that expenses related to generating revenue must be recognised in the same accounting period as the related revenue. This helps determine correct profit for the period.
+Example: Sales commission for current year sales should be charged in the same year.
+Hence, Option B is correct.
+
+2. Statement Based Question
+Consider the following statements regarding Accounting Principles:
+Statement I: Under the Going Concern Concept, it is assumed that the business will continue for the foreseeable future. Statement II: Because of the Going Concern Concept, fixed assets are normally recorded at liquidation value.
+A. Both Statement I and Statement II are correct B. Both Statement I and Statement II are incorrect C. Statement I is correct, but Statement II is incorrect D. Statement I is incorrect, but Statement II is correct
+Correct Answer: C
+Detailed Solution:
+	•	Statement I is correct: Going Concern assumes the business will continue operations for the foreseeable future. 
+	•	Statement II is incorrect: Because of this assumption, assets are generally valued on cost basis less depreciation, not liquidation value. 
+Hence, Option C is correct.
+
+3. Journal Entry Concept Based Question
+Cash ₹40,000 was introduced into the business by the owner as capital. According to the Rules of Debit and Credit, which of the following journal entries is correct?
+A. Cash A/c Dr. ₹40,000 To Capital A/c ₹40,000 B. Capital A/c Dr. ₹40,000 To Cash A/c ₹40,000 C. Cash A/c Dr. ₹40,000 To Sales A/c ₹40,000 D. Drawings A/c Dr. ₹40,000 To Cash A/c ₹40,000
+Correct Answer: A
+Detailed Solution:
+Cash is a Real Account and the rule is Debit what comes in. Since cash comes into the business, Cash A/c is debited.
+Capital is a Personal Account representing the owner’s claim, and the rule is Credit the giver. Since the owner gives capital, Capital A/c is credited.
+Entry: Cash A/c Dr. ₹40,000     To Capital A/c ₹40,000
+Hence, Option A is correct.
+
+4. Journal Entry Concept Based Question
+Furniture worth ₹25,000 was purchased for cash. Which of the following entries is correct as per the rules of debit and credit?
+A. Cash A/c Dr. ₹25,000 To Furniture A/c ₹25,000 B. Furniture A/c Dr. ₹25,000 To Cash A/c ₹25,000 C. Purchases A/c Dr. ₹25,000 To Cash A/c ₹25,000 D. Furniture A/c Dr. ₹25,000 To Capital A/c ₹25,000
+Correct Answer: B
+Detailed Solution:
+Furniture is a Real Account. Since furniture comes in, debit the asset received.
+Cash is also a Real Account. Since cash goes out, credit Cash A/c.
+Entry: Furniture A/c Dr. ₹25,000     To Cash A/c ₹25,000
+Hence, Option B is correct.
+
+

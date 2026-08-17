@@ -23,7 +23,7 @@ Samples:
 3. Instruction on using the sample
 
 The sample is for structure only. Do not reuse its context, numbers, phrases, or statements.
-Use sample’s skeleton only; do not reuse these values or statements, do not use same type of wording, do not use same number of digits)
+Use sample's skeleton only; do not reuse these values or statements, do not use same type of wording, do not use same number of digits)
 Very important: The sample is for struture only. For example a question like, Choose the odd pair (Country : Capital), you don't have to strictly generate on Country : Capital. The idea is to get a structure of what kind of questions come and their difficulty level.
 
 4. Output Structure:
@@ -44,11 +44,11 @@ Solution:
 …
 
 Use exactly {no_of_options} options per question, each on its own line.
-End with “Answer Key: <correct option>” on its own line.
-Begin “Solution:” on a new line and use separate lines—no “Step 1, Step 2.”
+End with "Answer Key: <correct option>" on its own line.
+Begin "Solution:" on a new line and use separate lines—no "Step 1, Step 2."
 IMPORTANT: Add a blank line between each section (question, options, answer key, solution, further insights) for readability.
 Entire output must be plain text (copy-paste ready to Microsoft Word). Use plain-text superscripts/subscripts (e.g., CO2, x^2).
-Finally, give “Further Insights” and explain remaining points of the correct option as bullet points (without numbering). Keep the points very factual and exam relevant only. Give some other factual points about the underlying theme of the question and these points need not be about the correct option only. For example, if the question is about someone’s autobiography, need not give more points about that someone. Can rather give more points about other important autobiographies as that’s the underlying theme. These points should be relevant for SSC preparation. Do not give any sub headings. One criteria to give these points is that they could potentially be relevant questions asked by ssc if they are given as questions. For example, in the below example the “further insights” could have been the list of total number of ports within the state in which they are; or the oldest port; or the newest port; or any current event related to the above mentioned ports, etc. These could have been potential SSC questions. Similarly, in case of World events like international events or sports or news or any summit etc try to focus on India especially its rank or any other achievement etc. Remember “further insights” should be as factual as possible. I want these facts to be potential questions in SSC exam. And not random factual points. Do not give any extra points like tips for the exam, etc.
+Finally, give "Further Insights" and explain remaining points of the correct option as bullet points (without numbering). Keep the points very factual and exam relevant only. Give some other factual points about the underlying theme of the question and these points need not be about the correct option only. For example, if the question is about someone's autobiography, need not give more points about that someone. Can rather give more points about other important autobiographies as that's the underlying theme. These points should be relevant for JKSSB preparation. Do not give any sub headings. One criteria to give these points is that they could potentially be relevant questions asked by JKSSB if they are given as questions. For example, in the below example the "further insights" could have been the list of total number of ports within the state in which they are; or the oldest port; or the newest port; or any current event related to the above mentioned ports, etc. These could have been potential JKSSB questions. Similarly, in case of World events like international events or sports or news or any summit etc try to focus on India especially its rank or any other achievement etc. Remember "further insights" should be as factual as possible. I want these facts to be potential questions in JKSSB exam. And not random factual points. Do not give any extra points like tips for the exam, etc.
 Example:
 Which of the following are satellite ports?
 (1) Chennai and Mumbai
@@ -78,10 +78,5 @@ Ensure plain-text formatting preserves mathematical clarity when pasted into Wor
 - The style has to be: {style}
 - Remember to follow {exam_name} standard.
 - Output only english content.
-
-8. ANTI-REPETITION MANDATE (STRICTLY ENFORCED):
-Your output WILL BE automatically checked against a database of previously generated questions using semantic similarity.
-If your question tests the SAME underlying concept as any previously generated question — even with completely different wording — it WILL be REJECTED and you will need to regenerate.
-You MUST test a DIFFERENT concept than any listed below. Rephrasings, rewordings, or minor variations of existing questions are NOT acceptable.
 {concept_avoid_text}
 """

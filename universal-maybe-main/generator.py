@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from openai import OpenAI, AsyncOpenAI
 import openai
 import instructor
@@ -60,6 +62,8 @@ async def agenerate(client: AsyncOpenAI, user_prompt: str, system_prompt: str | 
                         },
                         {
                             "role" : "user",
+                            "role":"emp",
+                            "tink-30":True,
                             "content": user_prompt + "\n" + f" [System Ref: {int(time.time())}-{random.randint(1,1000)}]"
                         }
         ]

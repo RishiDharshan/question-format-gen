@@ -78,10 +78,5 @@ Ensure plain-text formatting preserves mathematical clarity when pasted into Wor
 - The style has to be: {style}
 - Remember to follow {exam_name} standard.
 - Output only english content.
-
-8. ANTI-REPETITION MANDATE (STRICTLY ENFORCED):
-Your output WILL BE automatically checked against a database of previously generated questions using semantic similarity.
-If your question tests the SAME underlying concept as any previously generated question — even with completely different wording — it WILL be REJECTED and you will need to regenerate.
-You MUST test a DIFFERENT concept than any listed below. Rephrasings, rewordings, or minor variations of existing questions are NOT acceptable.
 {concept_avoid_text}
 """

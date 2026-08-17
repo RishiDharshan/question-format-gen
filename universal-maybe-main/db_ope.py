@@ -1,9 +1,11 @@
-import sqlite3, hashlib, re, datetime
+from __future__ import annotations
+import sqlite3, hashlib, re, datetime, json
 from pathlib import Path
 from typing import List
+import numpy as np
 
 DEDUP_MAX_AVOID = 300
-CONCEPT_MAX_AVOID = 200
+CONCEPT_MAX_AVOID = 500
 
 def _db_connect(db_file):
     Path(db_file).parent.mkdir(parents=True, exist_ok=True)
@@ -26,6 +28,15 @@ def init_db(db_file):
                 qhash TEXT,
                 concept TEXT,
                 chapter TEXT,
+                created_at TEXT,
+                FOREIGN KEY (qhash) REFERENCES questions(qhash)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS embeddings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                qhash TEXT UNIQUE,
+                embedding TEXT,
                 created_at TEXT,
                 FOREIGN KEY (qhash) REFERENCES questions(qhash)
             )
@@ -67,19 +78,95 @@ def get_covered_concepts(db_file: str, limit: int = CONCEPT_MAX_AVOID) -> List[s
     except sqlite3.OperationalError:
         return []
 
+def get_concept_frequency(db_file: str, concept: str) -> int:
+    """Return how many times a specific concept has been used."""
+    try:
+        with _db_connect(db_file=db_file) as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT COUNT(*) FROM concepts WHERE concept = ?",
+                (concept.strip().lower(),)
+            )
+            row = c.fetchone()
+        return row[0] if row else 0
+    except sqlite3.OperationalError:
+        return 0
+
+def get_concepts_grouped_by_chapter(db_file: str, limit: int = CONCEPT_MAX_AVOID) -> dict:
+    """Return concepts grouped by chapter for smarter prompt injection."""
+    try:
+        with _db_connect(db_file=db_file) as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT chapter, concept, COUNT(*) as cnt FROM concepts GROUP BY chapter, concept ORDER BY cnt DESC LIMIT ?",
+                (limit,)
+            )
+            rows = c.fetchall()
+        grouped = {}
+        for chapter, concept, cnt in rows:
+            ch = chapter if chapter else "General"
+            if ch not in grouped:
+                grouped[ch] = []
+            grouped[ch].append(f"{concept} (×{cnt})")
+        return grouped
+    except sqlite3.OperationalError:
+        return {}
+
 def build_concept_avoid_text(db_file: str) -> str:
-    """Build a concept-level avoid list to inject into the generation prompt."""
-    concepts = get_covered_concepts(db_file=db_file, limit=CONCEPT_MAX_AVOID)
-    if not concepts:
-        return ""
-    bullets = "\n".join(f"- {c}" for c in concepts)
+    """Build a concept-level avoid list grouped by chapter for better LLM comprehension."""
+    grouped = get_concepts_grouped_by_chapter(db_file=db_file, limit=CONCEPT_MAX_AVOID)
+    if not grouped:
+        # Fallback to flat list
+        concepts = get_covered_concepts(db_file=db_file, limit=CONCEPT_MAX_AVOID)
+        if not concepts:
+            return ""
+        bullets = "\n".join(f"- {c}" for c in concepts)
+        return (
+            "\n\nCONCEPT DIVERSITY REQUIREMENT — The following concepts have already been covered. "
+            "Do NOT generate questions testing these specific concepts:\n"
+            f"{bullets}\n"
+        )
+    
+    sections = []
+    for chapter, concepts_list in grouped.items():
+        concept_bullets = ", ".join(concepts_list)
+        sections.append(f"  [{chapter}]: {concept_bullets}")
+    grouped_text = "\n".join(sections)
+    
     return (
-        "\n\nCONCEPT DIVERSITY REQUIREMENT — The following concepts/sub-topics have already been covered extensively. "
-        "Do NOT generate questions testing these specific concepts. Instead, choose a DIFFERENT sub-topic or angle "
+        "\n\nCONCEPT DIVERSITY REQUIREMENT — The following concepts/sub-topics have already been covered (grouped by chapter). "
+        "Do NOT generate questions testing these specific concepts. Choose a COMPLETELY DIFFERENT sub-topic or angle "
         "within the assigned chapter that is NOT in this list:\n"
-        f"{bullets}\n"
+        f"{grouped_text}\n"
         "Pick a fresh, uncovered concept. If you cannot find one within the chapter, choose the LEAST covered concept and approach it from a completely new angle.\n"
     )
+
+def insert_embedding(db_file: str, qhash: str, embedding: List[float]):
+    """Store the embedding vector for a question."""
+    now = datetime.datetime.now().isoformat(timespec='seconds')
+    embedding_json = json.dumps(embedding)
+    with _db_connect(db_file=db_file) as conn:
+        c = conn.cursor()
+        try:
+            c.execute(
+                "INSERT OR IGNORE INTO embeddings (qhash, embedding, created_at) VALUES (?, ?, ?)",
+                (qhash, embedding_json, now)
+            )
+        except sqlite3.Error:
+            pass
+        conn.commit()
+
+def get_all_embeddings(db_file: str) -> List[List[float]]:
+    """Return all stored embedding vectors."""
+    try:
+        init_db(db_file)  # ensure embeddings table exists
+        with _db_connect(db_file=db_file) as conn:
+            c = conn.cursor()
+            c.execute("SELECT embedding FROM embeddings")
+            rows = c.fetchall()
+        return [json.loads(r[0]) for r in rows if r[0]]
+    except (sqlite3.OperationalError, json.JSONDecodeError):
+        return []
 
 def build_avoid_list_text(db_file) -> str | bool:
     try:
@@ -114,6 +201,7 @@ def clean_response(text: str) -> str:
         else:
             cleaned_lines.append(line)
     return "\n".join(cleaned_lines).strip()
+
 
 
 def split_question_blocks(text: str):
@@ -183,3 +271,6 @@ def norm_question_text(q: str) -> str:
 
 def hash_question(q: str) -> str:
     return hashlib.sha256(norm_question_text(q).encode('utf-8')).hexdigest()
+
+
+

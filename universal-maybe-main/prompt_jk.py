@@ -5,6 +5,7 @@ The exam you're currently responsible for is {exam_name}. So questions should be
 
 CRITICAL REQUIREMENT - DIRECT QUESTIONS: For "Direct MCQ questions", the question stem MUST be strictly a single, concise one-liner sentence (Maximum 1 line). Under NO circumstances should a direct question stem span multiple lines or be a paragraph. Keep it short and strictly direct.
 Note: If the question type is explicitly "Match the Following" or "Statement Based MCQ questions", you are permitted to use multiple lines ONLY to present the tabular lists or numbered statements.
+CRITICAL REQUIREMENT - NO NUMERICALS: Absolutely NO numerical values, mathematical calculations, or numerical scenarios are allowed. Focus STRICTLY on theoretical concepts, conceptual definitions, and principles. The questions must be 100% theory-based.
 
 Task:
 - Generate 1 entirely original multiple-choice question. 
@@ -78,10 +79,5 @@ Ensure plain-text formatting preserves mathematical clarity when pasted into Wor
 - The style has to be: {style}
 - Remember to follow {exam_name} standard.
 - Output only english content.
-
-8. ANTI-REPETITION MANDATE (STRICTLY ENFORCED):
-Your output WILL BE automatically checked against a database of previously generated questions using semantic similarity.
-If your question tests the SAME underlying concept as any previously generated question — even with completely different wording — it WILL be REJECTED and you will need to regenerate.
-You MUST test a DIFFERENT concept than any listed below. Rephrasings, rewordings, or minor variations of existing questions are NOT acceptable.
 {concept_avoid_text}
 """
